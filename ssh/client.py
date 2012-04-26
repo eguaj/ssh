@@ -279,21 +279,34 @@ class SSHClient (object):
             establishing an SSH session
         @raise socket.error: if a socket error occurred while connecting
         """
-        for (family, socktype, proto, canonname, sockaddr) in socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM):
-            if socktype == socket.SOCK_STREAM:
-                af = family
-                addr = sockaddr
-                break
-        else:
-            # some OS like AIX don't indicate SOCK_STREAM support, so just guess. :(
-            af, _, _, _, addr = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        sock = socket.socket(af, socket.SOCK_STREAM)
-        if timeout is not None:
+
+        # Iterate over all addresses of hostname, and try to connect
+        sock = None
+        addrList = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if len(addrList) == 0:
+            raise SSHException("Could not get address for hostname '%s'" % hostname)
+
+        for (family, socktype, proto, canonname, sockaddr) in addrList:
+            if socktype != socket.SOCK_STREAM:
+                continue
+            af = family
+            addr = sockaddr
+            sock = socket.socket(af, socket.SOCK_STREAM)
+            if timeout is not None:
+                try:
+                    sock.settimeout(timeout)
+                except:
+                    pass
             try:
-                sock.settimeout(timeout)
-            except:
-                pass
-        sock.connect(addr)
+                sock.connect(addr)
+                break
+            except Exception, e:
+                sock = None
+
+        # Raise an exception if no connection could be made over all host's addresses
+        if sock == None:
+            raise SSHException("Could not connect to host '%s'" % hostname)
+
         t = self._transport = Transport(sock)
         t.use_compression(compress=compress)
         if self._log_channel is not None:
